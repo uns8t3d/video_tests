@@ -20,7 +20,7 @@ bool decodeMJPEGtoRGB(unsigned char *mjpegData, int jpegSize, unsigned char *rgb
 
     jpeg_mem_src(&cinfo, mjpegData, jpegSize);
     if (jpeg_read_header(&cinfo, TRUE) != JPEG_HEADER_OK) {
-        std::cerr << "Ошибка чтения заголовка JPEG" << std::endl;
+        std::cerr << "Error reading JPEG header" << std::endl;
         jpeg_destroy_decompress(&cinfo);
         return false;
     }
@@ -40,9 +40,7 @@ bool decodeMJPEGtoRGB(unsigned char *mjpegData, int jpegSize, unsigned char *rgb
     return true;
 }
 
-// Ваша функция обработки кадра
 void processFrame(unsigned char *rgbData, int width, int height) {
-    // Пример обработки: инвертирование цветов
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             unsigned char *pixel = rgbData + (y * width + x) * 3;
@@ -54,14 +52,12 @@ void processFrame(unsigned char *rgbData, int width, int height) {
 }
 
 int main() {
-    // Открываем устройство камеры
     int fd = open(DEVICE, O_RDWR);
     if (fd == -1) {
-        std::cerr << "Ошибка открытия устройства камеры" << std::endl;
+        std::cerr << "Error opening camera device" << std::endl;
         return -1;
     }
 
-    // Настраиваем формат видео
     v4l2_format format = {};
     format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     format.fmt.pix.width = WIDTH;
@@ -70,61 +66,59 @@ int main() {
     format.fmt.pix.field = V4L2_FIELD_NONE;
 
     if (ioctl(fd, VIDIOC_S_FMT, &format) == -1) {
-        std::cerr << "Ошибка установки формата видео" << std::endl;
+        std::cerr << "Error setting video format" << std::endl;
         close(fd);
         return -1;
     }
 
-    // Запрос буферов
     v4l2_requestbuffers req = {};
     req.count = 1;
     req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     req.memory = V4L2_MEMORY_MMAP;
 
     if (ioctl(fd, VIDIOC_REQBUFS, &req) == -1) {
-        std::cerr << "Ошибка запроса буферов" << std::endl;
+        std::cerr << "Error requesting buffer" << std::endl;
         close(fd);
         return -1;
     }
 
-    // Маппинг буфера
     v4l2_buffer buffer = {};
     buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     buffer.memory = V4L2_MEMORY_MMAP;
     buffer.index = 0;
 
     if (ioctl(fd, VIDIOC_QUERYBUF, &buffer) == -1) {
-        std::cerr << "Ошибка запроса буфера" << std::endl;
+        std::cerr << "Error requesting buffer" << std::endl;
         close(fd);
         return -1;
     }
 
     void* buffer_start = mmap(nullptr, buffer.length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, buffer.m.offset);
     if (buffer_start == MAP_FAILED) {
-        std::cerr << "Ошибка маппинга буфера" << std::endl;
+        std::cerr << "Buffer mapping error" << std::endl;
         close(fd);
         return -1;
     }
 
-    // Помещаем буфер в очередь
+    // Place buffer to queue
     if (ioctl(fd, VIDIOC_QBUF, &buffer) == -1) {
-        std::cerr << "Ошибка помещения буфера в очередь" << std::endl;
+        std::cerr << "Error setting buffer in queue" << std::endl;
         munmap(buffer_start, buffer.length);
         close(fd);
         return -1;
     }
 
-    // Запуск захвата
+    // Launch capturing
     if (ioctl(fd, VIDIOC_STREAMON, &buffer.type) == -1) {
-        std::cerr << "Ошибка запуска захвата" << std::endl;
+        std::cerr << "Error launching capturing" << std::endl;
         munmap(buffer_start, buffer.length);
         close(fd);
         return -1;
     }
 
-    // Инициализация SDL
+    // SDL Init
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
-        std::cerr << "Ошибка инициализации SDL: " << SDL_GetError() << std::endl;
+        std::cerr << "SDL init error: " << SDL_GetError() << std::endl;
         munmap(buffer_start, buffer.length);
         close(fd);
         return -1;
@@ -132,7 +126,7 @@ int main() {
 
     SDL_Window *window = SDL_CreateWindow("Video Capture", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, WIDTH, HEIGHT, 0);
     if (!window) {
-        std::cerr << "Ошибка создания окна SDL: " << SDL_GetError() << std::endl;
+        std::cerr << "SDL window creation error: " << SDL_GetError() << std::endl;
         SDL_Quit();
         munmap(buffer_start, buffer.length);
         close(fd);
@@ -144,30 +138,30 @@ int main() {
 
     unsigned char *rgbData = new unsigned char[WIDTH * HEIGHT * 3];
 
-    // Захват и обработка видео
+    // Capturing and processing frame
     while (true) {
         if (ioctl(fd, VIDIOC_DQBUF, &buffer) == -1) {
-            std::cerr << "Ошибка захвата кадра" << std::endl;
+            std::cerr << "Error capturing frame" << std::endl;
             break;
         }
 
-        // Декодирование MJPEG в RGB
+        // Decode MJPEG to RGB
         if (!decodeMJPEGtoRGB(static_cast<unsigned char*>(buffer_start), buffer.bytesused, rgbData)) {
-            std::cerr << "Ошибка декодирования MJPEG" << std::endl;
+            std::cerr << "Error decoding MJPEG" << std::endl;
             break;
         }
 
-        // Обработка кадра
+        // frame processing
         // processFrame(rgbData, WIDTH, HEIGHT);
 
-        // Обновление текстуры и рендеринг
+        // Define texture and rendering
         SDL_UpdateTexture(texture, nullptr, rgbData, WIDTH * 3);
         SDL_RenderClear(renderer);
         SDL_RenderCopy(renderer, texture, nullptr, nullptr);
         SDL_RenderPresent(renderer);
 
         if (ioctl(fd, VIDIOC_QBUF, &buffer) == -1) {
-            std::cerr << "Ошибка буферизации кадра" << std::endl;
+            std::cerr << "Error buffering frame" << std::endl;
             break;
         }
 
@@ -177,10 +171,10 @@ int main() {
         }
     }
 
-    // Завершение захвата
+    // Capturing end
     ioctl(fd, VIDIOC_STREAMOFF, &buffer.type);
 
-    // Освобождение ресурсов
+    // Free resources
     delete[] rgbData;
     SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
